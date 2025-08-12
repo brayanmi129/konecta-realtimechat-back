@@ -1,0 +1,20 @@
+{
+  "name": "konecta-realtimechat-back",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/brayanmi129/konecta-realtimechat-back.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/brayanmi129/konecta-realtimechat-back/issues"
+  },
+  "homepage": "https://github.com/brayanmi129/konecta-realtimechat-back#readme",
+  "description": ""
+}
