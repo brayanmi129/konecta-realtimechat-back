@@ -2,8 +2,10 @@
   "name": "konecta-realtimechat-back",
   "version": "1.0.0",
   "main": "index.js",
+  "type": "commonjs",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "nodemon index.js"
   },
   "repository": {
     "type": "git",
@@ -16,5 +18,13 @@
     "url": "https://github.com/brayanmi129/konecta-realtimechat-back/issues"
   },
   "homepage": "https://github.com/brayanmi129/konecta-realtimechat-back#readme",
-  "description": ""
+  "description": "",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "mssql": "^11.0.1",
+    "nodemon": "^3.1.10",
+    "ws": "^8.18.3"
+  }
 }
