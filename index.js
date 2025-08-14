@@ -17,7 +17,11 @@ require("./sockets/websocket.js")(io);
 app.use(express.json());
 app.use(
   cors({
-    origin: ["http://localhost:5173", "http://localhost:3000"],
+    origin: [
+      "http://localhost:5173",
+      "http://localhost:3000",
+      "https://icy-dune-005e5e81e.2.azurestaticapps.net",
+    ],
 
     credentials: true,
   })
