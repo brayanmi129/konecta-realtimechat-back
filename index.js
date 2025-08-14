@@ -1,11 +1,18 @@
 const express = require("express");
 const app = express();
 const cors = require("cors");
-const dotenv = require("dotenv");
+const http = require("http");
+const { Server } = require("socket.io");
 
 const routes = require("./routers/routes.js");
-
 const port = process.env.PORT || 3000;
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: "*" },
+});
+
+require("./sockets/websocket.js")(io);
 
 app.use(express.json());
 app.use(
@@ -22,6 +29,6 @@ app.get("/", (req, res) => {
   res.send("Api is running");
 });
 
-app.listen(port, () => {
+server.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
