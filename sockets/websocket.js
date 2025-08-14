@@ -17,14 +17,25 @@ module.exports = (io) => {
     // Login
     socket.on("login", async (userData) => {
       socket.user = userData;
+
+      // Guardar como conectado
       await putConectUserS(socket.user);
 
-      const onlineUsers = await getConnectedUsersS();
-      const groupChats = await getGroupChatsForUser(socket.user.id);
-      console.log(`Chats grupales encontrados para ${socket.user.id}:`, groupChats);
+      // Unirse a la sala privada del usuario
       socket.join(`user_${socket.user.id}`);
+
+      // Enviar lista de usuarios online
+      const onlineUsers = await getConnectedUsersS();
       io.emit("onlineUsers", onlineUsers);
-      io.emit("groups", groupChats);
+
+      // Enviar SOLO al usuario logueado sus grupos
+      const groupChats = await getGroupChatsForUser(socket.user.id);
+      console.log(`Chats grupales para ${socket.user.id}:`, groupChats);
+      io.to(`user_${socket.user.id}`).emit("groups", groupChats);
+    });
+
+    socket.on("pingServer", () => {
+      socket.emit("pongServer");
     });
 
     // Obtener mensajes privados
@@ -33,20 +44,13 @@ module.exports = (io) => {
         ids.currentUserId,
         ids.otherUserId
       );
-      const chatInfo = {
-        messages: messages,
-        chatId: chatId,
-      };
-      callback(chatInfo);
+      callback({ messages, chatId });
     });
 
+    // Obtener mensajes de grupo
     socket.on("getMessagesGroup", async (chat, callback) => {
       const { messages } = await getOrCreateGroupChatMessages(chat.id);
-      const chatInfo = {
-        messages: messages,
-        chatId: chat.id,
-      };
-      callback(chatInfo);
+      callback({ messages, chatId: chat.id });
     });
 
     // Unirse a sala
@@ -55,7 +59,7 @@ module.exports = (io) => {
       console.log(`Socket ${socket.id} se unió a chat_${chatId}`);
     });
 
-    // Salir de sala (💥 lo que te faltaba)
+    // Salir de sala
     socket.on("leaveChat", (chatId) => {
       socket.leave(`chat_${chatId}`);
       console.log(`Socket ${socket.id} salió de chat_${chatId}`);
@@ -68,22 +72,27 @@ module.exports = (io) => {
       io.to(`chat_${newMessage.chat_id}`).emit("messageToChat", savedMessage);
     });
 
+    // Crear grupo
     socket.on("createGroup", async (data) => {
-      console.log("Creandoooo");
+      console.log("Creando grupo...");
       try {
-        // 1. Insertar en tabla Chats
-        // Añadir el creador al array de usuarios si no está ya incluido
+        // Validar lista de usuarios
         const users = Array.isArray(data.users) ? [...data.users] : [];
         if (!users.includes(data.creator)) {
           users.push(data.creator);
         }
+
+        // Crear grupo
         const chatId = await createGroupChat({
           name: data.name,
-          users: users,
+          users,
         });
 
-        const groupChats = await getGroupChatsForUser(data.creator);
-        io.emit("groups", groupChats);
+        // Enviar grupos actualizados SOLO a los miembros
+        for (const userId of users) {
+          const userGroupChats = await getGroupChatsForUser(userId);
+          io.to(`user_${userId}`).emit("groups", userGroupChats);
+        }
       } catch (err) {
         console.error("Error creando grupo:", err);
       }
@@ -92,7 +101,6 @@ module.exports = (io) => {
     // Desconexión
     socket.on("disconnect", async () => {
       console.log("Usuario desconectado:", socket.user);
-
       if (socket.user) {
         await desconectUserS(socket.user);
         const onlineUsers = await getConnectedUsersS();
