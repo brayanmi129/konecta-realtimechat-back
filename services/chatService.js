@@ -31,6 +31,17 @@ const getConnectedUsersS = async () => {
   return result.recordset;
 };
 
+const getGroupChatsForUser = async (id) => {
+  const pool = await getConnection();
+  const result = await pool.request().input("usuario_id", id).query(`
+    SELECT c.id, c.nombre
+    FROM Chats c
+    INNER JOIN ChatUsuarios cu ON c.id = cu.chat_id
+    WHERE cu.usuario_id = @usuario_id AND c.tipo = 'grupal'
+  `);
+  return result.recordset;
+};
+
 const putConectUserS = async (user) => {
   const pool = await getConnection();
   try {
@@ -121,6 +132,46 @@ async function getOrCreatePrivateChatMessages(currentUserId, otherUserId) {
   }
 }
 
+async function getOrCreateGroupChatMessages(chatId) {
+  const pool = await getConnection();
+
+  // 1. Verificar que el chat existe y es grupal
+  const chatResult = await pool.request().input("chatId", chatId).query(`
+      SELECT id, nombre, tipo, creado
+      FROM Chats
+      WHERE id = @chatId AND tipo = 'grupal'
+    `);
+
+  if (chatResult.recordset.length === 0) {
+    throw new Error("El chat grupal no existe");
+  }
+
+  const chatInfo = chatResult.recordset[0];
+
+  // 2. Traer todos los mensajes con info del usuario
+  const messagesResult = await pool.request().input("chatId", chatId).query(`
+      SELECT 
+        m.id,
+        m.chat_id,
+        m.usuario_id,
+        u.nombre AS usuario_nombre,
+        m.contenido,
+        m.archivo_url,
+        m.archivo_tipo,
+        m.archivo_nombre,
+        m.creado
+      FROM Mensajes m
+      INNER JOIN KonectaUsuarios u ON m.usuario_id = u.id
+      WHERE m.chat_id = @chatId
+      ORDER BY m.creado ASC
+    `);
+
+  return {
+    chat: chatInfo,
+    messages: messagesResult.recordset,
+  };
+}
+
 const sendMessageS = async (newMessage) => {
   try {
     const pool = await getConnection();
@@ -155,6 +206,32 @@ const desconectUserS = async (user) => {
   console.log(`Usuario ${user.nombre} registrado como desconectado en la DB`);
 };
 
+async function createGroupChat({ name, users }) {
+  console.log("Creando chat grupal:", name);
+  console.log("Usuarios que se unirán:", users);
+  const pool = await getConnection();
+
+  // Crear chat grupal
+  const chatResult = await pool.request().input("nombre", name).input("tipo", "grupal").query(`
+      INSERT INTO Chats (nombre, tipo)
+      OUTPUT INSERTED.id
+      VALUES (@nombre, @tipo)
+    `);
+
+  const chatId = chatResult.recordset[0].id;
+  console.log("Chat Grupal Creado con el ID:", chatId);
+
+  // Insertar cada usuario en ChatUsuarios
+  for (const userId of users) {
+    await pool.request().input("chat_id", chatId).input("usuario_id", userId).query(`
+        INSERT INTO ChatUsuarios (chat_id, usuario_id)
+        VALUES (@chat_id, @usuario_id)
+      `);
+  }
+
+  return chatId;
+}
+
 module.exports = {
   createUserS,
   getConnectedUsersS,
@@ -162,4 +239,7 @@ module.exports = {
   putConectUserS,
   getOrCreatePrivateChatMessages,
   sendMessageS,
+  createGroupChat,
+  getGroupChatsForUser,
+  getOrCreateGroupChatMessages,
 };
