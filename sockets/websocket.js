@@ -24,7 +24,11 @@ module.exports = (io) => {
       console.log(`Chats grupales encontrados para ${socket.user.id}:`, groupChats);
       socket.join(`user_${socket.user.id}`);
       io.emit("onlineUsers", onlineUsers);
-      io.emit("groups", groupChats);
+      io.to(`user_${socket.user.id}`).emit("groups", groupChats);
+    });
+
+    socket.on("pingServer", () => {
+      socket.emit("pongServer");
     });
 
     // Obtener mensajes privados
@@ -83,7 +87,11 @@ module.exports = (io) => {
         });
 
         const groupChats = await getGroupChatsForUser(data.creator);
-        io.emit("groups", groupChats);
+        // Enviar la lista de grupos actualizada a todos los usuarios del grupo
+        for (const userId of users) {
+          const userGroupChats = await getGroupChatsForUser(userId);
+          io.to(`user_${userId}`).emit("groups", userGroupChats);
+        }
       } catch (err) {
         console.error("Error creando grupo:", err);
       }
