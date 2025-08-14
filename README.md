@@ -66,3 +66,63 @@ konecta-realtimechat-back/
  ├── web.config        # IIS/hosting configuration
  └── .env              # Environment variables
 
+## 📦 Backend – Dockerfile & Usage
+
+Public image available on Docker Hub:
+
+```
+brayanmi129/konectachat:back
+```
+
+---
+
+### 🛠 Dockerfile
+
+```dockerfile
+# Official Node.js base image
+FROM node:22-slim
+
+# Set working directory inside the container
+WORKDIR /app
+
+# Copy dependency files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy the rest of the application code
+COPY . .
+
+# Expose application port
+EXPOSE 4343
+
+# Environment variables
+ENV PORT=4343
+
+# Start command
+CMD ["npm", "run", "start"]
+```
+
+---
+
+### ▶ Run the public image
+
+```bash
+docker run -d \
+  --name konecta-back \
+  -p 3000:4343 \
+  --env-file .env \
+  brayanmi129/konectachat:back
+```
+
+---
+
+### 📡 Access
+
+Once running, the backend will be available at:
+
+```
+http://localhost:3000
+```
+
