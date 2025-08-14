@@ -1,4 +1,7 @@
 const { getConnection } = require("../config/db");
+const crypto = require("crypto");
+const { containerClient } = require("../config/storage");
+const SAS_TOKEN = process.env.SAS_TOKEN;
 
 const createUserS = async (nombre) => {
   const pool = await getConnection();
@@ -232,6 +235,33 @@ async function createGroupChat({ name, users }) {
   return chatId;
 }
 
+async function uploadFile(file) {
+  try {
+    if (!file) {
+      throw new Error("No se recibió ningún archivo");
+    }
+
+    // Generar nombre aleatorio con extensión original
+    const randomName = crypto.randomUUID();
+    const fileExtension = file.originalname.split(".").pop();
+    const blobName = `${randomName}.${fileExtension}`;
+
+    // Cliente para el blob
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+
+    // Subir el archivo
+    await blockBlobClient.uploadData(file.buffer, {
+      blobHTTPHeaders: { blobContentType: file.mimetype },
+    });
+
+    // Retornar URL pública (con SAS si lo tienes configurado)
+    return `${blockBlobClient.url}${SAS_TOKEN || ""}`;
+  } catch (error) {
+    console.error("Error al subir el archivo a Azure Storage:", error);
+    throw error;
+  }
+}
+
 module.exports = {
   createUserS,
   getConnectedUsersS,
@@ -242,4 +272,5 @@ module.exports = {
   createGroupChat,
   getGroupChatsForUser,
   getOrCreateGroupChatMessages,
+  uploadFile,
 };

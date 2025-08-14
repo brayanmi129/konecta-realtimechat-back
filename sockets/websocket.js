@@ -35,7 +35,6 @@ module.exports = (io) => {
     });
 
     socket.on("pingServer", () => {
-      console.log("pong");
       socket.emit("pongServer");
     });
 
@@ -71,6 +70,7 @@ module.exports = (io) => {
       console.log("Nuevo mensaje recibido:", newMessage);
       const savedMessage = await sendMessageS(newMessage);
       io.to(`chat_${newMessage.chat_id}`).emit("messageToChat", savedMessage);
+      // 🔔 Notificación para todos menos el remitente
     });
 
     // Crear grupo
