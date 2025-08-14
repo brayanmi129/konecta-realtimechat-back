@@ -35,6 +35,7 @@ module.exports = (io) => {
     });
 
     socket.on("pingServer", () => {
+      console.log("pong");
       socket.emit("pongServer");
     });
 
