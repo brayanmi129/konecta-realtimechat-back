@@ -88,6 +88,16 @@ const getPrivateChatsForUserS = async (userId) => {
   return Object.values(chatsMap);
 };
 
+const usersInChatS = async (chat_id) => {
+  const pool = await getConnection();
+  const result = await pool.request().input("chat_id", chat_id).query(`
+      SELECT usuario_id 
+      FROM ChatUsuarios
+      WHERE chat_id = @chat_id
+    `);
+  return result.recordset;
+};
+
 const putConectUserS = async (user) => {
   const pool = await getConnection();
   try {
@@ -294,4 +304,5 @@ module.exports = {
   getOrCreateGroupChatMessages,
   uploadFile,
   getPrivateChatsForUserS,
+  usersInChatS,
 };
