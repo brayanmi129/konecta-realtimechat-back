@@ -35,7 +35,7 @@ module.exports = (io) => {
       const privateChats = await getPrivateChatsForUserS(socket.user.id);
       const groupChats = await getGroupChatsForUserS(socket.user.id);
 
-      console.log(`Chats privados para ${socket.user.id}:`, privateChats[0].participants);
+      console.log(`Chats privados para ${socket.user.id}:`, privateChats[0]);
       console.log(`Chats grupales para ${socket.user.id}:`, groupChats);
 
       // Enviar al usuario logueado
