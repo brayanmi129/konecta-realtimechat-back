@@ -9,9 +9,11 @@ const {
   getGroupChatsForUserS,
   getPrivateChatsForUserS,
   getOrCreateGroupChatMessages,
+  usersInChatS,
 } = require("../services/chatService");
 
 const userLastPing = {};
+const connectedUsers = new Map(); // userId => socketId
 
 module.exports = (io) => {
   io.on("connection", async (socket) => {
@@ -21,38 +23,37 @@ module.exports = (io) => {
     socket.on("login", async (userData) => {
       socket.user = userData;
 
-      // Guardar como conectado
+      // Guardar en mapa de conectados
+      connectedUsers.set(userData.id, socket.id);
+
+      // Guardar como conectado en BD
       await putConectUserS(socket.user);
 
-      // Unirse a la sala privada del usuario
+      // Unirse a sala privada del usuario
       socket.join(`user_${socket.user.id}`);
 
       // Enviar lista de usuarios online
       const onlineUsers = await getConnectedUsersS();
       io.emit("onlineUsers", onlineUsers);
 
-      // Obtener chats privados y grupales del usuario
+      // Obtener y enviar chats
       const privateChats = await getPrivateChatsForUserS(socket.user.id);
       const groupChats = await getGroupChatsForUserS(socket.user.id);
 
-      console.log(`Chats privados para ${socket.user.id}:`, privateChats[0].participants);
-      console.log(`Chats grupales para ${socket.user.id}:`, groupChats);
-
-      // Enviar al usuario logueado
       io.to(`user_${socket.user.id}`).emit("privateChats", privateChats);
       io.to(`user_${socket.user.id}`).emit("groupChats", groupChats);
     });
 
     // Obtener mensajes privados
     socket.on("getMessages", async (ids, callback) => {
-      const { chatId, messages } = await getOrCreatePrivateChatMessages(
+      const { chatId, messages, isNewChat } = await getOrCreatePrivateChatMessages(
         ids.currentUserId,
         ids.otherUserId
       );
-      callback({ messages, chatId });
+      callback({ messages, chatId, isNewChat });
     });
 
-    // Obtener mensajes de grupo
+    // Obtener mensajes grupales
     socket.on("getMessagesGroup", async (chat, callback) => {
       const { messages } = await getOrCreateGroupChatMessages(chat.id);
       callback({ messages, chatId: chat.id });
@@ -74,27 +75,37 @@ module.exports = (io) => {
     socket.on("sendMessage", async (newMessage) => {
       console.log("Nuevo mensaje recibido:", newMessage);
       const savedMessage = await sendMessageS(newMessage);
-      io.to(`chat_${newMessage.chat_id}`).emit("messageToChat", savedMessage);
-      // 🔔 Notificación para todos menos el remitente
+      io.to(`chat_${newMessage.chat_id}`).emit("messageReceived", savedMessage);
+
+      const usersInChat = await usersInChatS(newMessage.chat_id);
+
+      if (!usersInChat) {
+        console.error("No se encontraron usuarios para el chat", newMessage.chat_id);
+        return;
+      }
+
+      for (const { usuario_id } of usersInChat) {
+        const socketId = connectedUsers.get(usuario_id);
+        if (socketId) {
+          const privateChats = await getPrivateChatsForUserS(usuario_id);
+          io.to(socketId).emit("privateChats", privateChats);
+        }
+      }
     });
 
     // Crear grupo
     socket.on("createGroup", async (data) => {
-      console.log("Creando grupo...");
       try {
-        // Validar lista de usuarios
         const users = Array.isArray(data.users) ? [...data.users] : [];
         if (!users.includes(data.creator)) {
           users.push(data.creator);
         }
 
-        // Crear grupo
         const chatId = await createGroupChat({
           name: data.name,
           users,
         });
 
-        // Enviar grupos actualizados SOLO a los miembros
         for (const userId of users) {
           const userGroupChats = await getGroupChatsForUserS(userId);
           io.to(`user_${userId}`).emit("groups", userGroupChats);
@@ -104,23 +115,23 @@ module.exports = (io) => {
       }
     });
 
+    // Ping
     socket.on("pingServer", () => {
       if (socket.user) {
         userLastPing[socket.user.id] = Date.now();
       }
-      // Respuesta al cliente
       socket.emit("pongServer");
     });
 
-    // Revisión periódica de inactividad
+    // Revisar inactividad
     setInterval(async () => {
       const now = Date.now();
       for (const userId in userLastPing) {
         if (now - userLastPing[userId] > 20000) {
-          // 20 segundos sin ping
-          console.log(`Usuario ${userId} inactivo, marcando como desconectado`);
+          console.log(`Usuario ${userId} inactivo`);
           await desconectUserS({ id: userId });
           delete userLastPing[userId];
+          connectedUsers.delete(Number(userId));
           const onlineUsers = await getConnectedUsersS();
           io.emit("onlineUsers", onlineUsers);
         }
@@ -129,9 +140,9 @@ module.exports = (io) => {
 
     // Desconexión
     socket.on("disconnect", async () => {
-      console.log("Usuario desconectado:", socket.user);
       if (socket.user) {
         await desconectUserS(socket.user);
+        connectedUsers.delete(socket.user.id);
         const onlineUsers = await getConnectedUsersS();
         io.emit("onlineUsers", onlineUsers);
       }
