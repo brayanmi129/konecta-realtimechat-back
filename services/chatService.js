@@ -1,3 +1,4 @@
+// /services/chatService.js
 const { getConnection } = require("../config/db");
 const crypto = require("crypto");
 const { containerClient } = require("../config/storage");
@@ -10,7 +11,7 @@ const createUserS = async (nombre) => {
     .input("nombre", nombre)
     .query("INSERT INTO KonectaUsuarios (nombre) OUTPUT inserted.* VALUES (@nombre)");
 
-  usuario_id = result.recordset[0].id;
+  const usuario_id = result.recordset[0].id;
 
   await pool
     .request()
@@ -34,15 +35,57 @@ const getConnectedUsersS = async () => {
   return result.recordset;
 };
 
-const getGroupChatsForUser = async (id) => {
+// 🔹 Obtener chats grupales de un usuario
+const getGroupChatsForUserS = async (userId) => {
   const pool = await getConnection();
-  const result = await pool.request().input("usuario_id", id).query(`
+  const result = await pool.request().input("usuario_id", userId).query(`
     SELECT c.id, c.nombre
     FROM Chats c
     INNER JOIN ChatUsuarios cu ON c.id = cu.chat_id
     WHERE cu.usuario_id = @usuario_id AND c.tipo = 'grupal'
   `);
   return result.recordset;
+};
+
+const getPrivateChatsForUserS = async (userId) => {
+  const pool = await getConnection();
+  const result = await pool.request().input("usuario_id", userId).query(`
+    SELECT 
+      c.id AS chatId,
+      cu2.usuario_id AS participantId,
+      k.nombre AS participantNombre,
+      co.estado AS participantEstado
+    FROM Chats c
+    INNER JOIN ChatUsuarios cu1 
+      ON c.id = cu1.chat_id AND cu1.usuario_id = @usuario_id
+    INNER JOIN ChatUsuarios cu2 
+      ON c.id = cu2.chat_id AND cu2.usuario_id != @usuario_id
+    INNER JOIN KonectaUsuarios k 
+      ON k.id = cu2.usuario_id
+    LEFT JOIN Conexiones co 
+      ON co.usuario_id = cu2.usuario_id
+    WHERE c.tipo = 'privado'
+    ORDER BY c.id
+  `);
+
+  // Agrupar participantes por chat (aunque cada chat privado solo tiene 1 participante)
+  const chatsMap = {};
+  result.recordset.forEach((row) => {
+    if (!chatsMap[row.chatId]) {
+      chatsMap[row.chatId] = {
+        chatId: row.chatId,
+        participants: [
+          {
+            id: row.participantId,
+            nombre: row.participantNombre,
+            estado: row.participantEstado || "desconectado", // por si no hay registro
+          },
+        ],
+      };
+    }
+  });
+
+  return Object.values(chatsMap);
 };
 
 const putConectUserS = async (user) => {
@@ -59,12 +102,8 @@ const putConectUserS = async (user) => {
 };
 
 async function getOrCreatePrivateChatMessages(currentUserId, otherUserId) {
-  console.log("Current IDDDDD", currentUserId);
-  console.log("Other IDDDDD", otherUserId);
   try {
     const pool = await getConnection();
-
-    // 1️⃣ Buscar chat privado existente entre los dos
     let result = await pool
       .request()
       .input("currentUserId", currentUserId)
@@ -79,25 +118,12 @@ async function getOrCreatePrivateChatMessages(currentUserId, otherUserId) {
     let chatId;
     if (result.recordset.length > 0) {
       chatId = result.recordset[0].id;
-      console.log("chat encontrado entre", currentUserId, "y", otherUserId, "con ID:", chatId);
     } else {
-      // 2️⃣ Crear chat privado si no existe
       const insertChat = await pool
         .request()
         .input("tipo", "privado")
         .query(`INSERT INTO Chats (tipo) OUTPUT INSERTED.id VALUES (@tipo)`);
-
       chatId = insertChat.recordset[0].id;
-      console.log(
-        "El chat no existia entre",
-        currentUserId,
-        "y",
-        otherUserId,
-        "Nuevo chat creado con el ID:",
-        chatId
-      );
-
-      // 3️⃣ Registrar ambos usuarios en ChatUsuarios
       await pool
         .request()
         .input("chatId", chatId)
@@ -108,25 +134,22 @@ async function getOrCreatePrivateChatMessages(currentUserId, otherUserId) {
         `);
     }
 
-    // 4️⃣ Traer mensajes de ese chat
     const messages = await pool.request().input("chatId", chatId).query(`
-        SELECT 
-          m.id,
-          m.chat_id,
-          m.usuario_id,
-          m.contenido,
-          m.archivo_url,
-          m.archivo_tipo,
-          m.archivo_nombre,
-          m.creado,
-          u.nombre AS usuario_nombre
-        FROM Mensajes m
-        INNER JOIN KonectaUsuarios u ON m.usuario_id = u.id
-        WHERE m.chat_id = @chatId
-        ORDER BY m.creado ASC
-      `);
-
-    console.log(messages.recordset);
+      SELECT 
+        m.id,
+        m.chat_id,
+        m.usuario_id,
+        m.contenido,
+        m.archivo_url,
+        m.archivo_tipo,
+        m.archivo_nombre,
+        m.creado,
+        u.nombre AS usuario_nombre
+      FROM Mensajes m
+      INNER JOIN KonectaUsuarios u ON m.usuario_id = u.id
+      WHERE m.chat_id = @chatId
+      ORDER BY m.creado ASC
+    `);
 
     return { chatId, messages: messages.recordset };
   } catch (error) {
@@ -137,8 +160,6 @@ async function getOrCreatePrivateChatMessages(currentUserId, otherUserId) {
 
 async function getOrCreateGroupChatMessages(chatId) {
   const pool = await getConnection();
-
-  // 1. Verificar que el chat existe y es grupal
   const chatResult = await pool.request().input("chatId", chatId).query(`
       SELECT id, nombre, tipo, creado
       FROM Chats
@@ -150,8 +171,6 @@ async function getOrCreateGroupChatMessages(chatId) {
   }
 
   const chatInfo = chatResult.recordset[0];
-
-  // 2. Traer todos los mensajes con info del usuario
   const messagesResult = await pool.request().input("chatId", chatId).query(`
       SELECT 
         m.id,
@@ -179,7 +198,7 @@ const sendMessageS = async (newMessage) => {
   try {
     const pool = await getConnection();
 
-    // Insertar mensaje en la base de datos
+    // 1️⃣ Insertar el mensaje en la base de datos
     const result = await pool
       .request()
       .input("chat_id", newMessage.chat_id)
@@ -188,15 +207,31 @@ const sendMessageS = async (newMessage) => {
       .input("archivo_url", newMessage.archivo_url)
       .input("archivo_tipo", newMessage.archivo_tipo)
       .input("archivo_nombre", newMessage.archivo_nombre).query(`
-          INSERT INTO Mensajes (chat_id, usuario_id, contenido, archivo_url, archivo_tipo, archivo_nombre)
-          OUTPUT INSERTED.*
-          VALUES (@chat_id, @usuario_id, @contenido, @archivo_url, @archivo_tipo, @archivo_nombre)
-        `);
+        INSERT INTO Mensajes (chat_id, usuario_id, contenido, archivo_url, archivo_tipo, archivo_nombre)
+        OUTPUT INSERTED.*
+        VALUES (@chat_id, @usuario_id, @contenido, @archivo_url, @archivo_tipo, @archivo_nombre)
+      `);
 
     const savedMessage = result.recordset[0];
+
+    // 2️⃣ Obtener todos los usuarios de ese chat (excepto el remitente)
+    const chatUsersResult = await pool.request().input("chat_id", newMessage.chat_id).query(`
+      SELECT usuario_id FROM ChatUsuarios WHERE chat_id = @chat_id AND usuario_id != ${newMessage.usuario_id}
+    `);
+
+    // 3️⃣ Insertar un registro en MensajesLeidos para cada destinatario
+    for (const user of chatUsersResult.recordset) {
+      await pool.request().input("mensaje_id", savedMessage.id).input("usuario_id", user.usuario_id)
+        .query(`
+          INSERT INTO MensajesLeidos (mensaje_id, usuario_id, leido)
+          VALUES (@mensaje_id, @usuario_id, 0);
+        `);
+    }
+
     return savedMessage;
   } catch (error) {
     console.error("Error guardando mensaje:", error);
+    return null;
   }
 };
 
@@ -210,11 +245,7 @@ const desconectUserS = async (user) => {
 };
 
 async function createGroupChat({ name, users }) {
-  console.log("Creando chat grupal:", name);
-  console.log("Usuarios que se unirán:", users);
   const pool = await getConnection();
-
-  // Crear chat grupal
   const chatResult = await pool.request().input("nombre", name).input("tipo", "grupal").query(`
       INSERT INTO Chats (nombre, tipo)
       OUTPUT INSERTED.id
@@ -222,9 +253,6 @@ async function createGroupChat({ name, users }) {
     `);
 
   const chatId = chatResult.recordset[0].id;
-  console.log("Chat Grupal Creado con el ID:", chatId);
-
-  // Insertar cada usuario en ChatUsuarios
   for (const userId of users) {
     await pool.request().input("chat_id", chatId).input("usuario_id", userId).query(`
         INSERT INTO ChatUsuarios (chat_id, usuario_id)
@@ -240,21 +268,13 @@ async function uploadFile(file) {
     if (!file) {
       throw new Error("No se recibió ningún archivo");
     }
-
-    // Generar nombre aleatorio con extensión original
     const randomName = crypto.randomUUID();
     const fileExtension = file.originalname.split(".").pop();
     const blobName = `${randomName}.${fileExtension}`;
-
-    // Cliente para el blob
     const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-
-    // Subir el archivo
     await blockBlobClient.uploadData(file.buffer, {
       blobHTTPHeaders: { blobContentType: file.mimetype },
     });
-
-    // Retornar URL pública (con SAS si lo tienes configurado)
     return `${blockBlobClient.url}${SAS_TOKEN || ""}`;
   } catch (error) {
     console.error("Error al subir el archivo a Azure Storage:", error);
@@ -270,7 +290,8 @@ module.exports = {
   getOrCreatePrivateChatMessages,
   sendMessageS,
   createGroupChat,
-  getGroupChatsForUser,
+  getGroupChatsForUserS,
   getOrCreateGroupChatMessages,
   uploadFile,
+  getPrivateChatsForUserS,
 };
