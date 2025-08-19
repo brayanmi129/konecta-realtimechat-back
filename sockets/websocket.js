@@ -10,6 +10,7 @@ const {
   getPrivateChatsForUserS,
   getOrCreateGroupChatMessages,
   usersInChatS,
+  markMessagesAsRead,
 } = require("../services/chatService");
 
 const userLastPing = {};
@@ -87,6 +88,7 @@ module.exports = (io) => {
       for (const { usuario_id } of usersInChat) {
         const socketId = connectedUsers.get(usuario_id);
         if (socketId) {
+          console.log("Enviando chats privados a:", usuario_id);
           const privateChats = await getPrivateChatsForUserS(usuario_id);
           io.to(socketId).emit("privateChats", privateChats);
         }
@@ -113,6 +115,19 @@ module.exports = (io) => {
         }
       } catch (err) {
         console.error("Error creando grupo:", err);
+      }
+    });
+
+    // Marcar mensajes como leídos
+    socket.on("markAsRead", async ({ chatId, userId }) => {
+      const result = await markMessagesAsRead(chatId, userId);
+
+      if (result.success) {
+        const privateChats = await getPrivateChatsForUserS(userId);
+        const socketId = connectedUsers.get(userId);
+        io.to(socketId).emit("privateChats", privateChats);
+      } else {
+        socket.emit("error", { message: "No se pudieron marcar los mensajes como leídos" });
       }
     });
 
