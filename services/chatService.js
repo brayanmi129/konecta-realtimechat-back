@@ -89,13 +89,18 @@ const getPrivateChatsForUserS = async (userId) => {
 };
 
 const usersInChatS = async (chat_id) => {
-  const pool = await getConnection();
-  const result = await pool.request().input("chat_id", chat_id).query(`
+  try {
+    const pool = await getConnection();
+    const result = await pool.request().input("chat_id", chat_id).query(`
       SELECT usuario_id 
       FROM ChatUsuarios
       WHERE chat_id = @chat_id
     `);
-  return result.recordset;
+    return result.recordset;
+  } catch (error) {
+    console.error("Error al obtener usuarios en el chat:", error);
+    return [];
+  }
 };
 
 const putConectUserS = async (user) => {
@@ -245,13 +250,13 @@ const sendMessageS = async (newMessage) => {
   }
 };
 
-const desconectUserS = async (user) => {
+const desconectUserS = async (id) => {
   const pool = await getConnection();
   await pool
     .request()
-    .input("id", user.id)
+    .input("id", id)
     .query("UPDATE Conexiones SET estado = 'desconectado' WHERE usuario_id = @id");
-  console.log(`Usuario ${user.nombre} registrado como desconectado en la DB`);
+  console.log(`Usuario ${id} registrado como desconectado en la DB`);
 };
 
 async function createGroupChat({ name, users }) {
