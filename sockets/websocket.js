@@ -95,6 +95,7 @@ module.exports = (io) => {
 
     // Crear grupo
     socket.on("createGroup", async (data) => {
+      console.log("Creando grupo:", data);
       try {
         const users = Array.isArray(data.users) ? [...data.users] : [];
         if (!users.includes(data.creator)) {
@@ -108,7 +109,7 @@ module.exports = (io) => {
 
         for (const userId of users) {
           const userGroupChats = await getGroupChatsForUserS(userId);
-          io.to(`user_${userId}`).emit("groups", userGroupChats);
+          io.to(`user_${userId}`).emit("groupChats", userGroupChats);
         }
       } catch (err) {
         console.error("Error creando grupo:", err);
@@ -141,7 +142,7 @@ module.exports = (io) => {
     // Desconexión
     socket.on("disconnect", async () => {
       if (socket.user) {
-        await desconectUserS(socket.user);
+        await desconectUserS(socket.user.id);
         connectedUsers.delete(socket.user.id);
         const onlineUsers = await getConnectedUsersS();
         io.emit("onlineUsers", onlineUsers);
